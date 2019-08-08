@@ -56,8 +56,13 @@ void ADS8330::reset()
 	setConfiguration(ConfigRegisterMap::TAG, true);
 	setConfiguration(ConfigRegisterMap::Reset, false);
 	bitWrite(CommandBuffer, 8, true);
-	//Serial.println(CommandBuffer,BIN);
+	//Serial.print("R:");
+	//Serial.print(CommandBuffer,BIN);
+	//Serial.print(":");
 	sendCommandBuffer(true);
+	//uint16_t ReturnConfig = getConfig();
+	//Serial.print(ReturnConfig,BIN);
+	//Serial.print(";\n");
 	//sendWriteCommandBuffer();
 }
 
@@ -153,11 +158,13 @@ void ADS8330::setSampleChannel()
 {
 	if (UseChannel0)
 	{
-		setCommandBuffer(CommandRegister::SelectCh0);
+		//setCommandBuffer(CommandRegister::SelectCh0);
+		setCommandBuffer(CommandRegister::SelectCh1);
 	}
 	else
 	{
-		setCommandBuffer(CommandRegister::SelectCh1);
+		//setCommandBuffer(CommandRegister::SelectCh1);
+		setCommandBuffer(CommandRegister::SelectCh0);
 	}
 	sendCommandBuffer(false);
 }
@@ -198,6 +205,7 @@ uint8_t ADS8330::getSampleInteger(uint16_t* WriteVariable)
 	}
 	digitalWrite(ConvertPin, HIGH);
 	keepwaiting = true;
+	starttime = micros();
 	SPI.beginTransaction(ConnectionSettings);
 	while(keepwaiting)
 	{
@@ -213,21 +221,54 @@ uint8_t ADS8330::getSampleInteger(uint16_t* WriteVariable)
 			}
 		}
 	}
-	digitalWrite(SelectPin,LOW);
-	TempInput.UIntSmallData[1] = SPI.transfer( TempOutput.UIntSmallData[1] );
-	TempInput.UIntSmallData[0] = SPI.transfer( TempOutput.UIntSmallData[0] );
-	uint8_t TAGData = SPI.transfer( 0 );
-	digitalWrite(SelectPin, HIGH);
-	SPI.endTransaction();
-	*WriteVariable = TempInput.UIntLargeData;
-	if ( (uint8_t)(TAGData << 1) == (uint8_t)(0) && ( bitRead(TAGData,7) == UseChannel0 ) )
+	starttime = micros();
+	keepwaiting = true;
+	uint8_t TAGData = 255;
+	bool ChannelCorrect = false;
+	bool TagBlank = false;
+	while(keepwaiting)
 	{
-		return 0;
+		digitalWrite(SelectPin,LOW);
+		TempInput.UIntSmallData[1] = SPI.transfer( TempOutput.UIntSmallData[1] );
+		TempInput.UIntSmallData[0] = SPI.transfer( TempOutput.UIntSmallData[0] );
+		TAGData = SPI.transfer( 0 );
+		digitalWrite(SelectPin, HIGH);
+		SPI.endTransaction();
+		ChannelCorrect = ( bitRead(TAGData,7) == UseChannel0 );
+		TagBlank = (uint8_t)(TAGData << 1) == (uint8_t)(0);
+		if (ChannelCorrect && TagBlank)
+		{
+			*WriteVariable = TempInput.UIntLargeData;
+			return 0;
+		}
+		else
+		{
+			if ( (micros() - starttime) > EOCTimeout)
+			{
+				/*
+				Serial.print("E:");
+				Serial.print(TempInput.UIntSmallData[1],BIN);
+				Serial.print(",");
+				Serial.print(TempInput.UIntSmallData[0],BIN);
+				Serial.print(",");
+				Serial.print(TAGData,BIN);
+				Serial.print(",");
+				Serial.print(ChannelCorrect);
+				Serial.print(",");
+				Serial.print(TagBlank);
+				Serial.print(",");
+				Serial.print(UseChannel0);
+				Serial.print("\n");
+				*/
+				return 3;
+			}
+			else
+			{
+				setSampleChannel();
+			}
+		}
 	}
-	else
-	{
-		return 3;
-	}
+	return 4;
 }
 
 SPISettings* ADS8330::GetSPISettings()
